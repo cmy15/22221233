@@ -1,0 +1,261 @@
+{% extends 'base.jinja' %}
+
+{% block content %} 
+<style>
+    nav {
+        border-bottom: 1px solid black;
+        overflow: auto
+    }
+
+    #message_box, #friends_list, #friend_request, #sent_friend_request {
+        border: 1px solid black;
+        overflow: auto;
+        padding: 2px;
+    }
+
+    #message_box {
+        height: 400px;
+        width: 800px;
+    }
+
+    #friends_list, #friend_request, #sent_friend_request {
+        float: right;
+        width: 200px;
+        height: 400px;
+    }
+
+    .text  {
+        margin-top: 2px;
+        margin-bottom: 2px;
+    }
+
+</style>
+
+<!--Navbar, you'll see the username here-->
+<nav style="border-bottom: 1px solid black;">
+    <ol style="float: right">
+        <li style="display:inline-block">Username:  {{ username }} </li>
+    </ol>
+</nav>
+
+<h1>Messaging App </h1>
+
+<main>
+    <!-- The messages are displayed here -->
+    <section id="message_box"></section>
+
+    <!-- Add Friend form -->
+
+    <section id="add_friend_form">
+        <h3>Add a Friend</h3>
+        <input type="text" id="friend_username" placeholder="Enter friend's username">
+        <button onclick="sendFriendRequest()">Add Friend</button>
+    </section>
+
+    <!-- Friends list section -->
+    <section id="friends_list">
+        <h3>Friends</h3>
+        <ul>
+            {% for friend in friends %}
+                <li>{{ friend }}</li>  <!-- 假设 User 模型中有 username 属性 -->
+                <p class="text">Chat with: </p>
+            {% endfor %}
+        </ul>
+    </section>
+
+    <!-- Friend request section -->
+    <section id="friend_request">
+        <h3>Friend Request</h3>
+        <ul>
+            {% for request in friend_request['receiver'] %}
+                {% if request.status == 'sent' %}
+                    <li>{{ request.sender }}
+                        <button onclick="acceptFriendRequest('{{ request.sender }}')">Accept</button>
+                        <button onclick="rejectFriendRequest('{{ request.sender }}')">Reject</button>
+                    </li>
+                {% endif %}
+            {% endfor %}
+        </ul>
+    </section>
+    
+    <!-- Sent friend request section -->
+    <section id="sent_friend_request">
+        <h3>Sent Friend Requests</h3>
+        <ul>
+            {% for request in friend_request['sent'] %}
+                <li>{{ request.receiver }}
+                    <button onclick="withdrawFriendRequest('{{ request['receiver'] }}')">Withdraw</button>
+                </li>
+            {% endfor %}
+        </ul>
+    </section>
+
+    <!-- Chat box -->
+    <section id="chat_box">
+        <p class="text">Chat with: </p>
+        <input id="receiver" placeholder="username">
+        <button onclick="join_room()">Chat</button>
+    </section>
+
+    <!-- The (message) input box is set to display: none initially -->
+    <section id="input_box" style="display: none">
+        <p class="text">Message: </p>
+        <input id="message" placeholder="message">
+        <button onclick="send()">Send</button>
+        <button onclick="leave()">Leave Room</button>
+    </section>
+</main>
+
+<script src="/static/js/libs/socket.io.min.js"></script>
+<script>
+    let room_id = 0;
+    let username = "{{ username }}";
+    Cookies.set('username', username);
+
+    const socket = io();
+
+    // Initialize functions to handle chat and friend request
+    function startChat(friendUsername) {
+        $('#receiver').val(friendUsername);
+        join_room();
+    }
+
+
+
+
+    function sendFriendRequest() {
+        const friendUsername = document.getElementById('friend_username').value;
+        const username = "{{ username }}"; // 确保这里能正确获取当前登录用户的用户名
+
+        fetch('/add_friend', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                username: username,
+                friend_username: friendUsername
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                alert('Success: ' + data.message);
+            }
+        })
+        .catch((error) => {
+            console.error('Error:', error);
+        });
+    }
+
+    function acceptFriendRequest(sender) {
+        console.log('Accepting friend request from: ' + sender);
+        fetch('/accept_friend_request/' + sender, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Friend request accepted!');
+                location.reload();
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+
+    function rejectFriendRequest(sender) {
+        console.log('Rejecting friend request from: ' + sender);
+        fetch('/reject_friend_request/' + sender, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Friend request rejected!');
+                location.reload();  // Reload the page to update the UI
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+    
+    function withdrawFriendRequest(sender) {
+        console.log('Withdrawing friend request from: ' + sender);
+        fetch('/withdraw_friend_request/' + sender, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Friend request withdrawed!');
+                
+                location.reload();  // Reload the page to update the UI
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+
+    // Existing functionality for message handling
+    socket.on("incoming", (msg, color="black") => {
+        add_message(msg, color);
+    });
+
+    function send() {
+        let message = $("#message").val();
+        $("#message").val("");
+        socket.emit("send", username, message, room_id);  
+    }
+
+    function join_room() {
+        let receiver = $("#receiver").val();
+        socket.emit("join", username, receiver, (res) => {
+            if (typeof res != "number") {
+                alert(res);
+                return;
+            }
+            room_id = res;
+            Cookies.set("room_id", room_id);
+            $("#chat_box").hide();
+            $("#input_box").show();
+        });
+    }
+
+    function leave() {
+        Cookies.remove("room_id");
+        socket.emit("leave", username, room_id);
+        $("#input_box").hide();
+        $("#chat_box").show();
+    }
+
+    function add_message(message, color) {
+        let box = $("#message_box");
+        let child = $(`<p style="color:${color}; margin: 0px;"></p>`).text(message);
+        box.append(child);
+    }
+</script>
+{% endblock %}
